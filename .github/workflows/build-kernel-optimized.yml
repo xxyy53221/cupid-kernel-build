@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       auto_fix:
-        description: 'Auto-fix errors and rebuild'
+        description: 'Auto-find errors and rebuild'
         required: false
         default: 'true'
         type: choice
@@ -25,6 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 180
     env:
+      CLANG_VERSION: "r450784d"
       KERNEL_BRANCH: "topaz"
       DEVICE: "cupid"
       ARCH: "arm64"
@@ -45,6 +46,13 @@ jobs:
           temp-reserve-mb: 4096
           swap-size-mb: 4096
 
+      - name: 📊 Show Available Space After Resize
+        run: |
+          echo "After resize:"
+          df -h
+          echo "Memory info:"
+          free -h
+
       - name: 💾 Setup ccache
         if: ${{ inputs.use_cache == 'true' }}
         uses: hendrikmuhs/ccache-action@v1.2
@@ -54,30 +62,31 @@ jobs:
 
       - name: 📦 Install Dependencies
         run: |
-          echo "🔄 Installing build essentials..."
+          echo "🔄 Updating package manager..."
           sudo apt-get update -y > /dev/null 2>&1
+          echo "✅ Installing build essentials..."
           sudo apt-get install -y \
             bc build-essential libelf-dev flex bison libssl-dev \
             git curl wget unzip zip gcc-aarch64-linux-gnu \
-            libcrypto++-dev device-tree-compiler u-boot-tools
-          echo "✅ Dependencies installed"
+            gcc-arm-linux-gnueabi libcrypto++-dev device-tree-compiler \
+            u-boot-tools llvm llvm-dev 2>&1 | tail -20
+          echo "✅ Dependencies installed successfully"
 
-      - name: ⬇️ Download Clang Toolchain (Mirror Source)
+      - name: ⬇️ Download Clang Toolchain
         run: |
           mkdir -p $GITHUB_WORKSPACE/clang
           cd $GITHUB_WORKSPACE/clang
           
-          echo "📥 Downloading Clang from mirror..."
-          wget -q --show-progress -O clang.tar.gz \
-            "https://github.com/ZyCromerZ/clang-build/releases/download/18.0.0-20240101/Clang-18.0.0-20240101.tar.gz"
+          echo "📥 Downloading Clang r450784d..."
+          wget --no-check-certificate --timeout=120 --tries=3 --show-progress -O clang.tar.gz \
+            "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/tags/android-13.0.0_r3/clang-r450784d.tar.gz"
           
           echo "📂 Extracting Clang..."
           tar -xf clang.tar.gz --strip-components=1
           rm -f clang.tar.gz
           
-          # 关键软链接，解决编译工具缺失问题
+          # 修复 llvm-objcopy 缺失问题
           ln -s $GITHUB_WORKSPACE/clang/bin/llvm-objcopy /usr/bin/llvm-objcopy 2>/dev/null || true
-          ln -s $GITHUB_WORKSPACE/clang/bin/llvm-strip /usr/bin/llvm-strip 2>/dev/null || true
           
           echo "✅ Clang Ready"
           ls -la $GITHUB_WORKSPACE/clang/bin/clang
@@ -92,6 +101,7 @@ jobs:
       - name: 💉 Inject KernelSU
         run: |
           cd kernel-source
+          echo "🔄 Cloning KernelSU..."
           git clone --depth=1 https://github.com/tiann/KernelSU.git ksu || exit 1
           cp -r ksu/kernel drivers/kernelsu || exit 1
           if ! grep -q "kernelsu" drivers/Kconfig; then
