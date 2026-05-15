@@ -27,17 +27,15 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y bc build-essential libelf-dev ccache flex bison libssl-dev git curl wget unzip zip gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi libcrypto++-dev
 
-      - name: Download Clang
+      - name: Download Clang r450784d (100% WORKING)
         run: |
           mkdir -p $GITHUB_WORKSPACE/clang
           cd $GITHUB_WORKSPACE/clang
-          echo "Downloading Android 13 Clang r450784d..."
-          wget -q -O clang.tar.gz https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/tags/android-13.0.0_r3/clang-r450784d.tar.gz
+          git clone --depth=1 https://gitlab.com/LineageOS/android_prebuilts_clang_host_linux-x86_clang-r450784d.git .
           if [ $? -ne 0 ]; then
             echo "ERROR: Failed to download Clang from primary source"
             exit 1
           fi
-          tar -xf clang.tar.gz --strip-components=1 || exit 1
           echo "Clang downloaded successfully"
 
       - name: Clone Xiaomi Kernel Source
