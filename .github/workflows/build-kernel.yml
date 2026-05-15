@@ -3,13 +3,13 @@ on:
   workflow_dispatch:
     inputs:
       kernel_branch:
-        description: 'Kernel branch (cupid-r-oss for Android 11 or cupid-q-oss for Android 10)'
+        description: 'Kernel branch'
         required: true
-        default: 'cupid-r-oss'
+        default: 'cupid-s-oss'
         type: choice
         options:
-          - cupid-r-oss
-          - cupid-q-oss
+          - cupid-s-oss
+          - cupid-t-oss
 
 jobs:
   build:
@@ -42,8 +42,8 @@ jobs:
 
       - name: Clone Xiaomi Kernel Source
         run: |
-          echo "Cloning kernel branch: ${{ github.event.inputs.kernel_branch || 'cupid-r-oss' }}"
-          git clone --depth=1 https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git -b "${{ github.event.inputs.kernel_branch || 'cupid-r-oss' }}" kernel-source || {
+          echo "Cloning kernel branch: ${{ github.event.inputs.kernel_branch || 'cupid-s-oss' }}"
+          git clone --depth=1 https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git -b "${{ github.event.inputs.kernel_branch || 'cupid-s-oss' }}" kernel-source || {
             echo "ERROR: Failed to clone kernel. Check if branch exists."
             exit 1
           }
@@ -79,10 +79,10 @@ jobs:
           cp -af $GITHUB_WORKSPACE/susfs_src/include/linux/susfs.h include/linux/ || exit 1
           
           # Determine kernel version from branch
-          if [[ "${{ github.event.inputs.kernel_branch || 'cupid-r-oss' }}" == *"r-oss" ]]; then
-            PATCH_FILE="50_add_susfs_in_gki-android11-5.10.patch"
+          if [[ "${{ github.event.inputs.kernel_branch || 'cupid-s-oss' }}" == *"s-oss" ]]; then
+            PATCH_FILE="50_add_susfs_in_gki-android12-5.10.patch"
           else
-            PATCH_FILE="50_add_susfs_in_gki-android10-4.19.patch"
+            PATCH_FILE="50_add_susfs_in_gki-android13-5.10.patch"
           fi
           
           echo "Applying SUSFS patch: $PATCH_FILE"
@@ -206,6 +206,6 @@ jobs:
           echo "=== Build Summary ==="
           echo "Workflow: ${{ github.workflow }}"
           echo "Run ID: ${{ github.run_id }}"
-          echo "Kernel Branch: ${{ github.event.inputs.kernel_branch || 'cupid-r-oss' }}"
+          echo "Kernel Branch: ${{ github.event.inputs.kernel_branch || 'cupid-s-oss' }}"
           echo "Status: ${{ job.status }}"
           echo "Timestamp: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
