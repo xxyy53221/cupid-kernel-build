@@ -69,69 +69,33 @@ jobs:
             bc build-essential libelf-dev flex bison libssl-dev \
             git curl wget unzip zip gcc-aarch64-linux-gnu \
             gcc-arm-linux-gnueabi libcrypto++-dev device-tree-compiler \
-            u-boot-tools 2>&1 | tail -20
+            u-boot-tools llvm llvm-dev 2>&1 | tail -20
           echo "✅ Dependencies installed successfully"
 
-      - name: ⬇️ Download Clang Toolchain (Multiple Sources)
+      - name: ⬇️ Download Clang Toolchain
         run: |
           mkdir -p $GITHUB_WORKSPACE/clang
           cd $GITHUB_WORKSPACE/clang
           
-          echo "🔄 Attempting to download Clang r450784d..."
+          echo "📥 Downloading Clang r450784d..."
+          wget -q --show-progress -O clang.tar.gz \
+            "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/tags/android-13.0.0_r3/clang-r450784d.tar.gz"
           
-          if wget -q --show-progress -O clang.tar.gz \
-            "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r450784d.tar.gz" 2>/dev/null; then
-            echo "✅ Downloaded from Android source"
-          else
-            echo "⚠️  Primary source failed, trying mirror..."
-            if wget -q --show-progress -O clang.tar.gz \
-              "https://github.com/ZyCromerZ/clang-build/releases/download/18.0.0-20240101/Clang-18.0.0-20240101.tar.gz" 2>/dev/null; then
-              echo "✅ Downloaded from mirror source"
-            else
-              echo "⚠️  Mirror failed, using system clang-15..."
-              sudo apt-get install -y clang-15 llvm-15 lld-15
-              mkdir -p $GITHUB_WORKSPACE/clang/bin
-              cp /usr/bin/clang-15 $GITHUB_WORKSPACE/clang/bin/clang
-              cp /usr/bin/clang++-15 $GITHUB_WORKSPACE/clang/bin/clang++
-              cp /usr/bin/llvm-ar-15 $GITHUB_WORKSPACE/clang/bin/llvm-ar
-              cp /usr/bin/llvm-nm-15 $GITHUB_WORKSPACE/clang/bin/llvm-nm
-              cp /usr/bin/lld-15 $GITHUB_WORKSPACE/clang/bin/ld.lld
-              echo "✅ Using system clang-15"
-              clang-15 --version
-              exit 0
-            fi
-          fi
+          echo "📂 Extracting Clang..."
+          tar -xf clang.tar.gz --strip-components=1
+          rm -f clang.tar.gz
           
-          if [ -f clang.tar.gz ]; then
-            echo "📂 Extracting Clang..."
-            tar -xf clang.tar.gz --strip-components=1 || tar -xf clang.tar.gz
-            rm -f clang.tar.gz
-          fi
-          
-          if [ -f bin/clang ] || [ -f clang ]; then
-            echo "✅ Clang extracted successfully"
-          else
-            echo "❌ Clang not found, using fallback clang-15"
-            sudo apt-get install -y clang-15 llvm-15 lld-15
-            mkdir -p $GITHUB_WORKSPACE/clang/bin
-            cp /usr/bin/clang-15 $GITHUB_WORKSPACE/clang/bin/clang
-            cp /usr/bin/clang++-15 $GITHUB_WORKSPACE/clang/bin/clang++
-            cp /usr/bin/llvm-ar-15 $GITHUB_WORKSPACE/clang/bin/llvm-ar
-            cp /usr/bin/llvm-nm-15 $GITHUB_WORKSPACE/clang/bin/llvm-nm
-            cp /usr/bin/lld-15 $GITHUB_WORKSPACE/clang/bin/ld.lld
-          fi
+          # 修复 llvm-objcopy 缺失问题
+          ln -s $GITHUB_WORKSPACE/clang/bin/llvm-objcopy /usr/bin/llvm-objcopy 2>/dev/null || true
           
           echo "✅ Clang Ready"
-          ls -la $GITHUB_WORKSPACE/clang/bin/
+          ls -la $GITHUB_WORKSPACE/clang/bin/clang
 
-      - name: 💉 Clone Cupid Official Kernel
+      - name: 💉 Clone 【小米12专属内核源码】(唯一有效源)
         run: |
-          echo "🔄 Cloning kernel source..."
+          echo "🔄 Cloning cupid official kernel..."
           git clone --depth=1 -b $KERNEL_BRANCH \
-            https://github.com/ZakoClubROM/android_kernel_xiaomi_cupid.git kernel-source || {
-            echo "⚠️  Trying alternative source..."
-            git clone --depth=1 https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git kernel-source || exit 1
-          }
+            https://github.com/ZakoClubROM/android_kernel_xiaomi_cupid.git kernel-source
           echo "✅ Kernel source ready"
 
       - name: 💉 Inject KernelSU
@@ -166,9 +130,12 @@ jobs:
           export ARCH=$ARCH
           export LLVM=1
           export LLVM_IAS=1
+          export CC=clang
+          export LD=ld.lld
+          export CROSS_COMPILE=aarch64-linux-gnu-
           
-          echo "🔄 Generating kernel config..."
-          make O=out ${DEVICE}_defconfig || make O=out defconfig
+          echo "📋 Generating cupid_defconfig..."
+          make O=out cupid_defconfig
           
           echo "✏️  Enabling KernelSU and SUSFS..."
           {
@@ -177,13 +144,8 @@ jobs:
             echo "CONFIG_KSU_DEBUG=n"
           } >> out/.config
           
-          sort -u out/.config -o out/.config
-          
           echo "🔨 Compiling kernel..."
-          make -j$(($(nproc) + 1)) O=out \
-            CC=clang \
-            CROSS_COMPILE=aarch64-linux-gnu- \
-            LD=ld.lld || exit 1
+          make -j$(nproc) O=out 2>&1 | tee build.log
           
           echo "✅ Kernel compiled successfully"
 
