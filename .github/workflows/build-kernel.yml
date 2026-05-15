@@ -1,0 +1,94 @@
+name: Build Xiaomi 12 Latest KernelSU + SUSFS
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Kernel for cupid
+    runs-on: ubuntu-latest
+    steps:
+      - name: Maximize Build Space
+        uses: easimon/maximize-build-space@master
+        with:
+          root-reserve-mb: 8192
+          temp-reserve-mb: 4096
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y bc build-essential libelf-dev ccache flex bison libssl-dev git curl wget unzip zip gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi libcrypto++-dev
+
+      - name: Setup Clang (r450784d)
+        run: |
+          mkdir -p $GITHUB_WORKSPACE/clang
+          cd $GITHUB_WORKSPACE/clang
+          wget -O clang.tar.gz https://github.com/ZyCromerZ/clang-build/releases/download/clang-r450784d/clang-r450784d.tar.gz
+          tar -zxf clang.tar.gz --strip-components=1
+
+      - name: Clone Xiaomi 12 Kernel (Android 12)
+        run: |
+          git clone --depth=1 https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git -b cupid-s-oss kernel-source
+
+      - name: Inject KernelSU & SUSFS
+        run: |
+          cd kernel-source
+          git clone --depth=1 https://github.com/tiann/KernelSU.git ksu_src
+          cp -r ksu_src/kernel drivers/kernelsu
+          
+          if ! grep -q "kernelsu" drivers/Kconfig; then
+            sed -i '$i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+          fi
+          if ! grep -q "kernelsu" drivers/Makefile; then
+            echo 'obj-y += kernelsu/' >> drivers/Makefile
+          fi
+          
+          git clone --depth=1 https://github.com/ZyCromerZ/susfs.git $GITHUB_WORKSPACE/susfs_src
+          cp -af $GITHUB_WORKSPACE/susfs_src/fs/susfs.c fs/
+          cp -af $GITHUB_WORKSPACE/susfs_src/include/linux/susfs.h include/linux/
+          git apply --reject $GITHUB_WORKSPACE/susfs_src/kernel_patches/50_add_susfs_in_gki-android12-5.10.patch || true
+
+      - name: Compile Kernel
+        run: |
+          cd kernel-source
+          export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export HEADER_ARCH=arm64
+          
+          make O=out cupid_defconfig
+          echo "CONFIG_KSU=y" >> out/.config
+          echo "CONFIG_SUSFS=y" >> out/.config
+          
+          make -j$(nproc) O=out \
+            CC=clang \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
+            LD=ld.lld \
+            AR=llvm-ar \
+            NM=llvm-nm \
+            OBJCOPY=llvm-objcopy \
+            OBJDUMP=llvm-objdump \
+            STRIP=llvm-strip
+
+      - name: Package AnyKernel3
+        run: |
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
+          
+          if [ -f kernel-source/out/arch/arm64/boot/Image.gz ]; then
+            cp kernel-source/out/arch/arm64/boot/Image.gz AnyKernel3/
+          elif [ -f kernel-source/out/arch/arm64/boot/Image ]; then
+            cp kernel-source/out/arch/arm64/boot/Image AnyKernel3/
+          else
+            echo "错误: 未检测到内核映像！" && exit 1
+          fi
+          
+          cd AnyKernel3
+          sed -i 's/do.devicecheck=1/do.devicecheck=0/g' anykernel.sh
+          sed -i 's/block=\/dev\/block\/platform\/omap\/omap_hsmmc.0\/by-name\/boot;/block=auto;/g' anykernel.sh
+          zip -r ../Xiaomi12-Cupid-KSU-SUSFS.zip *
+
+      - name: Upload Build
+        uses: actions/upload-artifact@v4
+        with:
+          name: Xiaomi12-Cupid-Kernel
+          path: Xiaomi12-Cupid-KSU-SUSFS.zip
