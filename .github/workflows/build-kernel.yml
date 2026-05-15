@@ -18,13 +18,13 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y bc build-essential libelf-dev ccache flex bison libssl-dev git curl wget unzip zip gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi libcrypto++-dev
 
-      - name: Download Clang
-        run: |
-          mkdir -p $GITHUB_WORKSPACE/clang
-          cd $GITHUB_WORKSPACE/clang
-          # AOSP官方实测有效直链，可正常下载不报错
-          wget -c https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/tags/android-13.0.0_r3/clang-r450784d.tar.gz -O clang-r450784d.tar.gz
-          tar -zxvf clang-r450784d.tar.gz --strip-components=1
+      - - name: Download Clang
+  run: |
+    mkdir -p $GITHUB_WORKSPACE/clang
+    cd $GITHUB_WORKSPACE/clang
+    wget -O clang.tar.gz https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/tags/android-13.0.0_r3/clang-r450784d.tar.gz
+    tar -xf clang.tar.gz --strip-components=1
+
 
       - name: Clone Xiaomi 12 Kernel (Android 12)
         run: |
