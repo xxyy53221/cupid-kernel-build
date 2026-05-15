@@ -1,14 +1,6 @@
 name: Build Xiaomi 12 Latest KernelSU + SUSFS
 on:
   workflow_dispatch:
-    inputs:
-      kernel_branch:
-        description: 'Kernel branch'
-        required: true
-        default: 'gki'
-        type: choice
-        options:
-          - gki
 
 jobs:
   build:
@@ -26,61 +18,64 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y bc build-essential libelf-dev ccache flex bison libssl-dev git curl wget unzip zip gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi libcrypto++-dev
 
-      - name: Download Clang r450784d
+      - name: Download Valid Clang r450784d
         run: |
           mkdir -p $GITHUB_WORKSPACE/clang
           cd $GITHUB_WORKSPACE/clang
-          echo "Downloading Android 13 Clang r450784d..."
+          echo "Downloading Android13 Clang r450784d..."
           wget -O clang.tar.gz https://github.com/droidian/android-platform-prebuilts-clang-host-linux-x86-33/archive/refs/heads/master.tar.gz
           if [ $? -ne 0 ]; then
-            echo "ERROR: Failed to download Clang from primary source"
+            echo "Clang Download Failed"
             exit 1
           fi
           tar -xf clang.tar.gz --strip-components=1 || exit 1
-          echo "Clang downloaded successfully"
+          echo "Clang Ready"
 
-      - name: Clone Xiaomi Kernel Source
+      - name: Clone Cupid Official Kernel
         run: |
-          git clone --depth=1 https://github.com/WildKernels/GKI_KernelSU_SUSFS.git kernel-source || {
-            echo "ERROR: Failed to clone kernel."
-            exit 1
-          }
+          git clone --depth=1 -b topaz https://github.com/ZakoClubROM/android_kernel_xiaomi_cupid.git kernel-source || exit 1
 
-      - name: Compile Kernel
+      - name: Inject KernelSU
+        run: |
+          cd kernel-source
+          git clone --depth=1 https://github.com/tiann/KernelSU.git ksu || exit 1
+          cp -r ksu/kernel drivers/kernelsu || exit 1
+          echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
+          echo 'obj-y += kernelsu/' >> drivers/Makefile
+
+      - name: Inject SUSFS
+        run: |
+          cd kernel-source
+          git clone --depth=1 https://github.com/ShirkNeko/susfs4ksu.git susfs || exit 1
+          cp susfs/fs/susfs.c fs/ || exit 1
+          cp susfs/include/linux/susfs.h include/linux/ || exit 1
+          git apply susfs/kernel_patches/50_add_susfs_in_gki-android12-5.10.patch || true
+
+      - name: Compile Cupid Kernel
         run: |
           cd kernel-source
           export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
           export ARCH=arm64
-          export SUBARCH=arm64
           export LLVM=1
           export LLVM_IAS=1
-          
-          echo "Generating GKI defconfig..."
-          make O=out gki_defconfig || exit 1
-          
-          echo "Building kernel..."
-          make -j$(nproc) O=out \
-            CC=clang \
-            CROSS_COMPILE=aarch64-linux-gnu- \
-            LD=ld.lld
+          make O=out cupid_defconfig || exit 1
+          echo "CONFIG_KSU=y" >> out/.config
+          echo "CONFIG_KSU_SUSFS=y" >> out/.config
+          make -j$(nproc) O=out CC=clang CROSS_COMPILE=aarch64-linux-gnu- LD=ld.lld || exit 1
 
-      - name: Verify Kernel Image
+      - name: Package Flashable Zip
         run: |
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git ak3 || exit 1
           cd kernel-source
-          ls -lah out/arch/arm64/boot/
+          cp out/arch/arm64/boot/Image.gz-dtb ../ak3/ || exit 1
+          cd ../ak3
+          sed -i 's/do.devicecheck=1/do.devicecheck=0/' anykernel.sh
+          sed -i 's/is_slot_device=0;/is_slot_device=1;/' anykernel.sh
+          zip -r ../Xiaomi12_Cupid_KSU_SUSFS.zip * -x "*.git*" || exit 1
 
-      - name: Package AnyKernel3
-        run: |
-          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
-          cd kernel-source
-          cp out/arch/arm64/boot/Image.gz-dtb ../AnyKernel3/ 2>/dev/null || cp out/arch/arm64/boot/Image.gz ../AnyKernel3/
-          cd ../AnyKernel3
-          sed -i 's/do.devicecheck=1/do.devicecheck=0/g' anykernel.sh
-          sed -i 's/is_slot_device=0;/is_slot_device=1;/g' anykernel.sh
-          zip -r ../Xiaomi12-KSU-SUSFS.zip * -x "*.git*" "*.md"
-
-      - name: Upload Build Artifact
+      - name: Upload Kernel Zip
         uses: actions/upload-artifact@v4
         with:
-          name: Xiaomi12-KSU-SUSFS
-          path: Xiaomi12-KSU-SUSFS.zip
+          name: Xiaomi12-Cupid-Kernel
+          path: Xiaomi12_Cupid_KSU_SUSFS.zip
+          retention-days: 30
