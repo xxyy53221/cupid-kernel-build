@@ -3,13 +3,12 @@ on:
   workflow_dispatch:
     inputs:
       kernel_branch:
-        description: 'Kernel branch (cupid-r-oss for Android 11 or cupid-q-oss for Android 10)'
+        description: 'Kernel branch'
         required: true
-        default: 'cupid-r-oss'
+        default: 'gki'
         type: choice
         options:
-          - cupid-r-oss
-          - cupid-q-oss
+          - gki
 
 jobs:
   build:
@@ -40,21 +39,12 @@ jobs:
           tar -xf clang.tar.gz --strip-components=1 || exit 1
           echo "Clang downloaded successfully"
 
-      # ==============================
-      # 已替换为你指定的可用仓库
-      # 自带 KSU + SUSFS，无任何报错
-      # ==============================
       - name: Clone Xiaomi Kernel Source
         run: |
-          echo "Cloning kernel branch: topaz"
           git clone --depth=1 https://github.com/WildKernels/GKI_KernelSU_SUSFS.git kernel-source || {
             echo "ERROR: Failed to clone kernel."
             exit 1
           }
-
-      # ==============================
-      # 以下自动正常运行，无文件缺失
-      # ==============================
 
       - name: Compile Kernel
         run: |
@@ -62,75 +52,35 @@ jobs:
           export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
           export ARCH=arm64
           export SUBARCH=arm64
-          export HEADER_ARCH=arm64
           export LLVM=1
           export LLVM_IAS=1
-          export CCACHE_COMPILERCHECK=content
-          export CCACHE_MAXSIZE=50G
           
-          echo "Generating defconfig..."
-          make O=out cupid_defconfig || exit 1
+          echo "Generating GKI defconfig..."
+          make O=out gki_defconfig || exit 1
           
           echo "Building kernel..."
           make -j$(nproc) O=out \
             CC=clang \
             CROSS_COMPILE=aarch64-linux-gnu- \
-            CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
-            LD=ld.lld \
-            AR=llvm-ar \
-            NM=llvm-nm \
-            OBJCOPY=llvm-objcopy \
-            OBJDUMP=llvm-objdump \
-            STRIP=llvm-strip 2>&1 | tail -100
-          
-          if [ $? -ne 0 ]; then
-            echo "ERROR: Kernel compilation failed"
-            exit 1
-          fi
-          echo "Kernel compiled successfully"
+            LD=ld.lld
 
       - name: Verify Kernel Image
         run: |
           cd kernel-source
-          if [ -f "out/arch/arm64/boot/Image.gz-dtb" ]; then
-            echo "Found: Image.gz-dtb"
-            ls -lh out/arch/arm64/boot/Image.gz-dtb
-          elif [ -f "out/arch/arm64/boot/Image.gz" ]; then
-            echo "Found: Image.gz"
-            ls -lh out/arch/arm64/boot/Image.gz
-          elif [ -f "out/arch/arm64/boot/Image" ]; then
-            echo "Found: Image"
-            ls -lh out/arch/arm64/boot/Image
-          else
-            echo "ERROR: Kernel image not found!"
-            exit 1
-          fi
+          ls -lah out/arch/arm64/boot/
 
       - name: Package AnyKernel3
         run: |
-          echo "Cloning AnyKernel3..."
-          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3 || exit 1
-          
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
           cd kernel-source
-          if [ -f "out/arch/arm64/boot/Image.gz-dtb" ]; then
-            cp out/arch/arm64/boot/Image.gz-dtb ../AnyKernel3/Image.gz-dtb
-          elif [ -f "out/arch/arm64/boot/Image.gz" ]; then
-            cp out/arch/arm64/boot/Image.gz ../AnyKernel3/Image.gz
-          else
-            cp out/arch/arm64/boot/Image ../AnyKernel3/Image
-          fi
-          
+          cp out/arch/arm64/boot/Image.gz-dtb ../AnyKernel3/ 2>/dev/null || cp out/arch/arm64/boot/Image.gz ../AnyKernel3/
           cd ../AnyKernel3
           sed -i 's/do.devicecheck=1/do.devicecheck=0/g' anykernel.sh
-          sed -i 's/block=\/dev\/block\/platform\/omap\/omap_hsmmc.0\/by-name\/boot;/block=auto;/g' anykernel.sh
           sed -i 's/is_slot_device=0;/is_slot_device=1;/g' anykernel.sh
-          
-          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-          zip -r ../Xiaomi12-Cupid-KSU-SUSFS-${TIMESTAMP}.zip * -x "*.git*" "*.md" || exit 1
+          zip -r ../Xiaomi12-KSU-SUSFS.zip * -x "*.git*" "*.md"
 
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Xiaomi12-Cupid-Kernel-${{ github.run_id }}
-          path: Xiaomi12-Cupid-KSU-SUSFS-*.zip
-          retention-days: 30
+          name: Xiaomi12-KSU-SUSFS
+          path: Xiaomi12-KSU-SUSFS.zip
