@@ -1,0 +1,67 @@
+name: Build Xiaomi 12 (cupid) SukiSU Ultra + SUSFS4
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Maximize Build Space
+        uses: easimon/maximize-build-space@master
+        with:
+          root-reserve-mb: 8192
+          remove-dotnet: true
+          remove-android: true
+          remove-haskell: true
+          remove-codeql: true
+          remove-docker-images: true
+
+      - name: Install Dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y bc build-essential libelf-dev flex bison libssl-dev git curl zip unzip
+
+      - name: Download Clang Toolchain
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/clang"
+          cd "$GITHUB_WORKSPACE/clang"
+          curl -L "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/tags/android-13.0.0_r3/clang-r450784d.tar.gz" -o clang.tar.gz
+          tar xf clang.tar.gz
+
+      - name: Clone Kernel Source
+        run: |
+          git clone --depth 1 -b android-12 https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git kernel
+
+      - name: Integrate SukiSU & SUSFS4
+        run: |
+          cd kernel
+          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/install.sh" | bash
+          git clone https://github.com/sukisu-ultra/SUSFS4KSU.git susfs
+          cp -rf susfs/fs/susfs.c fs/
+          cp -rf susfs/include/linux/susfs.h include/linux/
+
+      - name: Build Kernel
+        run: |
+          cd kernel
+          export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
+          export ARCH=arm64
+          export CC=clang
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          make cupid_defconfig O=out
+          echo "CONFIG_KSU=y" >> out/.config
+          echo "CONFIG_SUSFS=y" >> out/.config
+          make -j$(nproc) O=out
+
+      - name: Make AnyKernel3
+        run: |
+          git clone --depth 1 https://github.com/osm0sis/AnyKernel3.git ak3
+          cp kernel/out/arch/arm64/boot/Image.gz ak3/
+          cd ak3
+          sed -i "s/do.devicecheck=1/do.devicecheck=0/g" anykernel.sh
+          zip -r ../cupid-sukisu-ultra-susfs4.zip .
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: Xiaomi-12-SukiSU-SUSFS4
+          path: "*.zip"
